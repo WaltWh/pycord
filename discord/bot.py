@@ -35,6 +35,7 @@ from typing import (
     Any,
     Callable,
     Coroutine,
+    Generator,
     List,
     Optional,
     Type,
@@ -130,8 +131,7 @@ class ApplicationCommandMixin:
                 command.id = cmd.id
                 self._application_commands[command.id] = command
                 break
-        else:
-            self._pending_application_commands.append(command)
+        self._pending_application_commands.append(command)
 
     def remove_application_command(
         self, command: ApplicationCommand
@@ -493,7 +493,7 @@ class ApplicationCommandMixin:
             for cmd in self.application_commands:
                 if (
                     cmd.name == interaction.data["name"]
-                    and interaction.data["guild_id"] in cmd.guild_ids
+                    and interaction.data.get("guild_id", None) in cmd.guild_ids
                 ):
                     command = cmd
                     break
@@ -632,7 +632,7 @@ class ApplicationCommandMixin:
 
     def group(
         self,
-        name: str,
+        name: Optional[str] = None,
         description: Optional[str] = None,
         guild_ids: Optional[List[int]] = None,
     ) -> Callable[[Type[SlashCommandGroup]], SlashCommandGroup]:
@@ -643,8 +643,8 @@ class ApplicationCommandMixin:
 
         Parameters
         ----------
-        name: :class:`str`
-            The name of the group to create.
+        name: Optional[:class:`str`]
+            The name of the group to create. This will resolve to the name of the decorated class if ``None`` is passed.
         description: Optional[:class:`str`]
             The description of the group to create.
         guild_ids: Optional[List[:class:`int`]]
@@ -658,7 +658,7 @@ class ApplicationCommandMixin:
         """
         def inner(cls: Type[SlashCommandGroup]) -> SlashCommandGroup:
             group = cls(
-                name,
+                name or cls.__name__,
                 (
                     description or inspect.cleandoc(cls.__doc__).splitlines()[0]
                     if cls.__doc__ is not None else "No description provided"
@@ -670,6 +670,19 @@ class ApplicationCommandMixin:
         return inner
 
     slash_group = group
+
+    def walk_application_commands(self) -> Generator[ApplicationCommand, None, None]:
+        """An iterator that recursively walks through all application commands and subcommands.
+
+        Yields
+        ------
+        :class:`.ApplicationCommand`
+            An application command from the internal list of application commands.
+        """
+        for command in self.application_commands:
+            if isinstance(command, SlashCommandGroup):
+                yield from command.walk_commands()
+            yield command
 
     async def get_application_context(
         self, interaction: Interaction, cls=None
